@@ -53,17 +53,11 @@ local function create_floating_window(config)
   return { buf = buf, win = win }
 end
 
-M.start_presentation = function(opts)
-  opts = opts or {}
-  opts.bufnr = opts.bufnr or 0
-
-  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
-  local parsed = parse_slides(lines)
-
+local create_window_configurations = function()
   local width = vim.o.columns
   local height = vim.o.lines
-  ---@type vim.api.keyset.win_config[]
-  local windows = {
+
+  return {
     background = {
       relative = "editor",
       width = width,
@@ -94,6 +88,16 @@ M.start_presentation = function(opts)
     },
     -- footer = {}
   }
+end
+
+M.start_presentation = function(opts)
+  opts = opts or {}
+  opts.bufnr = opts.bufnr or 0
+
+  local lines = vim.api.nvim_buf_get_lines(opts.bufnr, 0, -1, false)
+  local parsed = parse_slides(lines)
+
+  local windows = create_window_configurations()
 
   local background_float = create_floating_window(windows.background)
   local header_float = create_floating_window(windows.header)
@@ -103,6 +107,7 @@ M.start_presentation = function(opts)
   vim.bo[body_float.buf].filetype = "markdown"
 
   local set_slide_content = function(idx)
+    local width = vim.o.columns
     local slide = parsed.slides[idx]
     local padding = string.rep(" ", (width - #slide.title) / 2)
     local title = padding .. slide.title
@@ -148,6 +153,24 @@ M.start_presentation = function(opts)
 
       vim.api.nvim_win_close(header_float.win, true)
       vim.api.nvim_win_close(background_float.win, true)
+    end,
+  })
+
+  -- common plugin pattern: handle events and states for users
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = vim.api.nvim_create_augroup("present-resized", {}),
+    callback = function()
+      if not vim.api.nvim_win_is_valid(body_float.win) or body_float.win == nil then
+        return
+      end
+
+      local updated = create_window_configurations()
+      vim.api.nvim_win_set_config(header_float.win, updated.header)
+      vim.api.nvim_win_set_config(body_float.win, updated.body)
+      vim.api.nvim_win_set_config(background_float.win, updated.background)
+
+      -- re-calculates current slide contents
+      set_slide_content(current_slide)
     end,
   })
 
