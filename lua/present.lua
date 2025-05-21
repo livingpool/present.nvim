@@ -8,8 +8,13 @@ end
 --- @field slides present.Slide[]: The slides of the file
 
 --- @class present.Slide
---- @field title string
---- @field body string[]
+--- @field title string: The title of the slide
+--- @field body string[]: The body of the slide
+--- @field blocks present.Block[]: A codeblock of a slide
+
+--- @class present.Block
+--- @field language string: The language of the codeblock
+--- @field body string: The body of the codeblock
 
 --- Take some lines and parses them
 --- @param lines string[]: The lines in the buffer
@@ -19,6 +24,7 @@ local parse_slides = function(lines)
   local current_slide = {
     title = "",
     body = {},
+    blocks = {},
   }
 
   local separator = "^#"
@@ -31,6 +37,7 @@ local parse_slides = function(lines)
       current_slide = {
         title = line,
         body = {},
+        blocks = {},
       }
     else
       table.insert(current_slide.body, line)
@@ -38,6 +45,30 @@ local parse_slides = function(lines)
   end
 
   table.insert(slides.slides, current_slide)
+
+  for _, slide in ipairs(slides.slides) do
+    local block = {
+      language = nil,
+      body = "",
+    }
+    local inside_block = false
+    for _, line in ipairs(slide.body) do
+      if vim.startswith(line, "```") then
+        if not inside_block then
+          block.language = string.sub(line, 4)
+          inside_block = true
+        else
+          inside_block = false
+          block.body = vim.trim(block.body)
+          table.insert(slide.blocks, block)
+        end
+      else
+        if inside_block then
+          block.body = block.body .. line .. "\n"
+        end
+      end
+    end
+  end
 
   return slides
 end
@@ -53,6 +84,7 @@ local function create_floating_window(config, enter)
   return { buf = buf, win = win }
 end
 
+-- Set configurations for the floating window
 local create_window_configurations = function()
   local width = vim.o.columns
   local height = vim.o.lines
@@ -147,6 +179,7 @@ M.start_presentation = function(opts)
     vim.api.nvim_buf_set_lines(state.floats.footer.buf, 0, -1, false, { footer })
   end
 
+  -- keymaps
   vim.keymap.set("n", "n", function()
     state.current_slide = math.min(state.current_slide + 1, #state.parsed.slides)
     set_slide_content(state.current_slide)
@@ -160,6 +193,19 @@ M.start_presentation = function(opts)
   vim.keymap.set("n", "q", function()
     vim.api.nvim_win_close(state.floats.body.win, true)
   end, { buffer = state.floats.body.buf })
+
+  vim.keymap.set("n", "X", function()
+    local slide = state.parsed.slides[state.current_slide]
+    -- TODO: Make a way for people to execute this for other languages
+    local block = slide.blocks[1]
+    if not block then
+      vim.print("No blocks on this page")
+      return
+    end
+
+    local chunk = loadstring(block.body)
+    chunk()
+  end)
 
   local restore = {
     cmdheight = {
@@ -214,7 +260,7 @@ end
 --   "# World",
 --   "this is another thing",
 -- }))
--- M.start_presentation({ bufnr = 229 })
+M.start_presentation({ bufnr = 11 })
 
 M._parse_slides = parse_slides
 
